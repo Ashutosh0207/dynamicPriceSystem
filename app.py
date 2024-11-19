@@ -1,140 +1,98 @@
 import streamlit as st
 import pandas as pd
-from models.optimization import optimize_daily_prices
+import matplotlib.pyplot as plt
+from models.optimization_model import optimize_price
+from price_forecasting import forecast_price
 
+# Load data
+data = pd.read_csv('./data/prices.csv')
+data['Date'] = pd.to_datetime(data['Date'])  # Ensure the date is in datetime format
 
-# Load initial data
-data = pd.read_csv("data/Updated_Market_Data.csv")
+# Get unique commodities
+commodities = data['Commodity'].unique()
 
-# Global variables for storing results
-daily_optimized_prices = []
-expected_profit = 0.0
+# Initialize session state for Section 1 table
+if "data_table" not in st.session_state:
+    st.session_state["data_table"] = []
+if "total_profit" not in st.session_state:
+    st.session_state["total_profit"] = 0
+if "last_parameters" not in st.session_state:
+    st.session_state["last_parameters"] = None
 
-# Streamlit app
-st.set_page_config(page_title="Daily Price Optimization Dashboard", layout="wide")
+# Sidebar
+st.sidebar.title("Vegetable Optimization and Trends")
+section = st.sidebar.radio("Select a Section", ["Optimize Prices", "Trends and Forecasting"])
 
-# Dashboard Title
-st.title("Daily Price Optimization Dashboard")
+# Section 1: Optimize Prices
+if section == "Optimize Prices":
+    st.title("Optimize Your Prices")
+    st.write("Enter details of the vegetables you want to sell:")
 
-# Form for product details
-with st.form("optimization_form"):
-    st.header("Enter Product Details")
-    product_name = st.text_input("Product Name", placeholder="Enter product name", key="product_name")
-    quantity = st.number_input("Quantity (kg)", min_value=0.0, step=0.1, key="quantity")
-    competitor_price = st.number_input("Competitor Price (optional)", min_value=0.0, step=0.1, key="competitor_price")
-    submit_button = st.form_submit_button(label="Optimize Price")
+    # Inputs
+    vegetable = st.selectbox("Select Vegetable:", commodities)
+    quantity = st.number_input("Quantity (kg):", min_value=1, value=10)
+    competitor_price = st.number_input("Competitor Price (optional):", min_value=0.0, value=0.0)
 
-# Handle form submission
-if submit_button:
-    try:
-        st.write("Processing optimization...")
-        # Prepare inputs
-        inputs = {
-            "product_names": [product_name],
-            "quantities": [quantity],
-            "competitor_prices": [competitor_price]
-        }
-        
-        # Call the optimization function
-        daily_optimized_prices, expected_profit = optimize_daily_prices(data, inputs)
-        st.success("Optimization successful!")
-
-    except Exception as e:
-        st.error(f"Error during optimization: {str(e)}")
-
-# Display optimized results
-if daily_optimized_prices:
-    st.header("Optimized Prices for the Day")
-    column_mapping = {
-    "name": "Product Name",
-    "price": "Optimized Price",
-    "inventory": "Inventory (kg)"
-    }
-    df = pd.DataFrame(daily_optimized_prices).rename(columns=column_mapping)
-    st.table(df)
-    st.subheader(f"Expected Profit for the Day: ${expected_profit:.2f}")
-else:
-    st.info("No results to display. Please submit product details to optimize prices.")
-
-# Append results to a local CSV
-if daily_optimized_prices:
-    historical_data = pd.DataFrame(daily_optimized_prices)
-    historical_data["expected_profit"] = expected_profit
-    historical_data.to_csv("historical_optimizations.csv", mode="a", header=False, index=False)
-
-# Display historical data
-if st.sidebar.button("View Historical Data"):
-    # Read the historical data
-    history = pd.read_csv("historical_optimizations.csv")
-    # Rename the columns before displaying the DataFrame
-    history.columns = ["Product Name", "Optimized Price", "Inventory (kg)", "Profit for the Day"]
-    # Display the historical data
-    st.subheader("Historical Data")
-    st.dataframe(history)
-
-csv = pd.DataFrame(daily_optimized_prices).to_csv(index=False)
-if st.sidebar.download_button(label="Download Optimized Prices", data=csv, file_name="optimized_prices.csv", mime="text/csv"):
-    if daily_optimized_prices:
-        csv = pd.DataFrame(daily_optimized_prices).to_csv(index=False)
-        st.download_button(
-            label="Download Optimized Prices",
-            data=csv,
-            file_name="optimized_prices.csv",
-            mime="text/csv",
-        )
-
-if st.sidebar.checkbox("Batch Optimization"):
-    product_details = st.file_uploader("Upload Product Details CSV (name, quantity, competitor_price)", type=["csv"])
-    if product_details:
-        batch_data = pd.read_csv(product_details)
-        batch_results, batch_profit = optimize_daily_prices(data, batch_data)
-        st.table(batch_results)
-        st.subheader(f"Expected Total Profit: ${batch_profit:.2f}")
-
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-
-
-feedback = st.text_area("Share your feedback or suggestions")
-# Submit button to save feedback
-if st.button("Submit Feedback"):
-    if feedback.strip():  # Check if feedback is not empty
+    # Add data to table
+    if st.button("Optimize Price"):
         try:
-            # Append feedback to the file
-            with open("feedback.txt", "a") as f:
-                 f.write(feedback + "\n")
-            st.success("Thank you for your feedback!")
+            optimized_price, profit, parameters = optimize_price(vegetable, quantity, competitor_price)
+            st.session_state["data_table"].append({
+                "Vegetable": vegetable,
+                "Quantity (kg)": quantity,
+                "Competitor Price": competitor_price,
+                "Optimized Price": optimized_price,
+                "Profit (₹)": profit
+            })
+            st.session_state["total_profit"] += profit
+            st.session_state["last_parameters"] = parameters  # Store parameters for display
         except Exception as e:
-            # Handle any errors during file writing
-            st.error(f"An error occurred while saving feedback: {e}")
-    else:
-        st.warning("Please enter your feedback before submitting.")
+            st.error(f"Error: {e}")
 
+    # Display Table
+    if st.session_state["data_table"]:
+        st.subheader("Optimized Pricing Table")
+        st.write(pd.DataFrame(st.session_state["data_table"]))
 
-#import openai
-#if st.sidebar.button("Ask the Assistant"):
-    # openai.api_key = "api-key"
+        # Total Profit
+        st.success(f"Total Estimated Profit: ₹{st.session_state['total_profit']:.2f}")
 
-    # def ai_assistant_query(prompt):
-    #     # Create a conversation with the new API interface
-    #     response = openai.Completion.create(
-    #         model="gpt-4",  # Specify the model to use
-    #         prompt=prompt,  # Provide the user's prompt
-    #         max_tokens=150  # Limit the response length
-    #     )
-    #     return response.choices[0].text.strip()  # Get the content of the AI response
+    # Display Last Parameters
+    if st.session_state["last_parameters"]:
+        st.subheader("Parameters Used in the Last Optimization")
+        st.json(st.session_state["last_parameters"])
 
-    # # Streamlit interface
-    # query = st.text_area("Ask the Assistant")
-    # if st.button("Get Advice"):
-    #     response = ai_assistant_query(query)
-    #     st.write(response)
+# Section 2: Trends and Forecasting
+elif section == "Trends and Forecasting":
+    st.title("Trends and Forecasting")
 
+    # Dropdown to select vegetable
+    selected_vegetable = st.selectbox("Select a vegetable:", commodities)
 
+    # Display trends
+    st.subheader(f"Historical Trends for {selected_vegetable}")
+    # Filter data for the selected vegetable
+    commodity_data = data[data['Commodity'] == selected_vegetable].sort_values('Date')
 
+    # Line Plot
+    plt.figure(figsize=(10, 5))
+    plt.plot(commodity_data['Date'], commodity_data['Average'], label="Price", marker="o")
+    plt.xlabel("Date")
+    plt.ylabel("Price")
+    plt.title(f"Price Trends for {selected_vegetable}")
+    plt.legend()
+    st.pyplot(plt)
 
+    # Display Descriptive Stats
+    st.subheader("Descriptive Statistics")
+    st.write(commodity_data['Average'].describe())
 
+    # Forecast Future Price
+    st.subheader("Price Forecasting")
+    target_date = st.date_input("Select a future date:")
+    if st.button("Forecast Price"):
+        try:
+            predicted_price = forecast_price(selected_vegetable, target_date)
+            st.success(f"Predicted price for {selected_vegetable} on {target_date}: ₹{predicted_price:.2f}")
+        except Exception as e:
+            st.error(f"Error: {e}")
